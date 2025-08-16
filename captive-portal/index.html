@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="sw">
+<head>
+  <meta charset="UTF-8" />
+  <title>Jiconnect Wi-Fi</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <h1 class="main-title">Jiconnect Wi-Fi</h1>
+    <p id="subtitle" class="subtitle">Chagua kifurushi chako au ingia kama tayari una username</p>
+
+    <!-- 📦 Liste des forfaits -->
+    <div id="forfaits" class="forfait-list"></div>
+
+    <!-- ℹ️ Message sélection -->
+    <div id="selected-message" class="selected-info hidden"></div>
+
+    <!-- 📝 Formulaire infos client -->
+    <div id="form-container" class="form-section hidden">
+      <input type="text" id="fullname" placeholder="Jina kamili" />
+      <input type="text" id="phone" placeholder="Namba ya simu" />
+      <button id="payBtn">💳 Lipa sasa</button>
+    </div>
+
+    <!-- ✅ Message de retour -->
+    <div id="message"></div>
+
+    <!-- 📄 Zone identifiants et reçu -->
+    <div id="receipt-container" class="hidden">
+      <button id="connectBtn" class="forfait-button">🌐 Unganishwa na mtandao</button>
+      <br /><br />
+      <a id="receiptLink" class="forfait-button" href="#" target="_blank" download>📄 Pakua risiti</a>
+    </div>
+
+    <!-- 🔘 Bouton vers connexion -->
+    <div id="login-shortcut" class="form-section">
+      <a href="login.html" class="username-button">Nina username tayari</a>
+    </div>
+
+    <!-- 📞 Aide -->
+    <div class="help">
+      Una shida? <a href="tel:+255000000000">Pata msaada</a>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

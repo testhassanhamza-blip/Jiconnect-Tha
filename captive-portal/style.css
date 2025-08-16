@@ -1,0 +1,170 @@
+/* 🌐 Base */
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', Tahoma, sans-serif;
+  background-color: #0b0f1a;
+  color: #f5d042;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* 📦 Conteneur principal */
+.container {
+  text-align: center;
+  width: 100%;
+  max-width: 420px;
+  padding: 30px 20px;
+  box-sizing: border-box;
+}
+
+/* 🟡 Titres */
+.main-title {
+  font-size: 28px;
+  font-weight: bold;
+  margin-bottom: 10px;
+  color: #f5d042;
+}
+
+.subtitle {
+  font-size: 16px;
+  margin-bottom: 30px;
+  color: #f5d042;
+}
+
+/* 📱 Forfaits */
+.forfait-list button,
+.form-section button,
+.username-button,
+#connectBtn,
+#receiptLink {
+  border: none;
+  border-radius: 20px;
+  padding: 14px;
+  width: 100%;
+  font-size: 15px;
+  font-weight: bold;
+  cursor: pointer;
+  box-sizing: border-box;
+  margin-bottom: 15px;
+  transition: transform 0.2s ease;
+}
+
+.forfait-button {
+  background-color: #f5d042;
+  color: #0a174e;
+}
+
+.forfait-button:hover,
+.username-button:hover,
+#connectBtn:hover,
+#receiptLink:hover {
+  transform: scale(1.03);
+}
+
+/* ✅ Bouton identifiant */
+.username-button {
+  background-color: #f5d042;
+  color: #0a174e;
+  border: none;
+  border-radius: 20px;
+  padding: 10px;
+  font-size: 14px;
+  font-weight: bold;
+  width: 50%;
+  cursor: pointer;
+  margin-top: 10px;
+  margin-bottom: 10px;
+  text-decoration: none;
+  display: inline-block;
+  transition: transform 0.2s ease;
+}
+
+.username-button:hover {
+  transform: scale(1.03);
+  background-color: #ffeb66; /* légère variation sur hover */
+}
+
+
+/* 🟢 Bouton de paiement */
+#payBtn {
+  background-color: #f5d042;
+  color: #0a174e;
+}
+
+/* 📝 Formulaire */
+.form-section input {
+  width: 100%;
+  padding: 14px;
+  margin: 10px 0;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  box-sizing: border-box;
+}
+
+/* ℹ️ Message dynamique */
+.selected-info {
+  background-color: #1a1a1a;
+  color: #f5d042;
+  padding: 15px;
+  border-radius: 10px;
+  font-size: 15px;
+  margin-bottom: 15px;
+  box-sizing: border-box;
+}
+
+/* 💬 Message après paiement */
+.message-zone {
+  margin-top: 20px;
+  font-size: 15px;
+  background: #1f2633;
+  padding: 15px;
+  border-radius: 10px;
+  color: #ffffff;
+  box-sizing: border-box;
+}
+
+/* ✅ Zone de succès */
+.success-box {
+  background: #e1f7e7;
+  color: #155724;
+  padding: 15px;
+  border-radius: 10px;
+  font-size: 15px;
+  border: 1px solid #c3e6cb;
+  box-sizing: border-box;
+}
+
+/* 🔒 Éléments cachés */
+.hidden {
+  display: none;
+}
+
+/* 📞 Lien de contact */
+.help {
+  margin-top: 30px;
+  color: #ccc;
+  font-size: 14px;
+}
+.help a {
+  color: #f5d042;
+  text-decoration: none;
+}
+.help a:hover {
+  text-decoration: underline;
+}
+
+/* 📱 Responsive */
+@media (max-width: 400px) {
+  .main-title { font-size: 24px; }
+  .subtitle { font-size: 15px; }
+  .forfait-list button,
+  .form-section button,
+  .form-section input {
+    font-size: 14px;
+    padding: 12px;
+  }
+}
