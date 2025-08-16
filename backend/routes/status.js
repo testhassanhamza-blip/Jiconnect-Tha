@@ -1,5 +1,4 @@
 // backend/routes/status.js
-
 const express = require('express');
 const router = express.Router();
 const { verifierStatutRouteur } = require('./mikrotik');
@@ -13,4 +12,4 @@ router.get('/router/status', async (req, res) => {
   }
 });
 
-module.exports = router; // ✅ c’est ça qui manquait
+module.exports = router; // ✅ IMPORTANT
