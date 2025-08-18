@@ -59,12 +59,12 @@ mongoose
 
 // ---------- ROUTES ----------
 app.use("/api", require("./routes/pay"));       // /api/pay
-app.use("/api", require("./routes/ventes"));    // /api/ventes   ← AJOUT
-app.use("/api", require("./routes/status"));    // (existant)
-app.use("/api", require("./routes/auth"));      // (existant)
-app.use("/api", require("./routes/connected")); // (existant)
+app.use("/api", require("./routes/ventes"));    // /api/ventes
+app.use("/api", require("./routes/status"));
+app.use("/api", require("./routes/auth"));
+app.use("/api", require("./routes/connected"));
 
-// (Optionnel) Route de seed auto-montée si présente et activée
+// (Optionnel) Route de seed auto-montée si présente et activée (version fichier)
 if (process.env.ENABLE_SEED === "true") {
   try {
     app.use("/api/dev", require("./routes/devSeed"));
@@ -73,6 +73,70 @@ if (process.env.ENABLE_SEED === "true") {
     console.warn("ℹ️  routes/devSeed.js non trouvé, seed ignoré");
   }
 }
+
+/* === INLINE SEED ROUTE (fallback si routes/devSeed.js absent) ===
+   Permet de (ré)créer l'admin :
+   - email: admin@jiconnect.co
+   - pass : Admin123!
+   Activation:
+   - ENABLE_SEED=true
+   - Optionnel: DEV_SEED_TOKEN doit matcher ?token=... (GET) ou body.token (POST)
+*/
+if (process.env.ENABLE_SEED === "true") {
+  const bcrypt = require("bcryptjs");
+  const mongooseLocal = require("mongoose");
+
+  // Essaie d'utiliser le modèle User/Admin existant, sinon modèle minimal sur "users"
+  let UserModel;
+  try { UserModel = require("./models/User"); } catch {}
+  if (!UserModel) { try { UserModel = require("./models/Admin"); } catch {} }
+  if (!UserModel) {
+    const { Schema, model } = mongooseLocal;
+    const schema = new Schema({
+      email: { type: String, unique: true },
+      password: String,
+      role: { type: String, default: "admin" },
+      name: String,
+    });
+    UserModel = mongooseLocal.models.User || model("User", schema, "users");
+  }
+
+  async function seedHandler(req, res) {
+    try {
+      const expected = process.env.DEV_SEED_TOKEN || "";
+      const provided =
+        req.method === "GET" ? (req.query.token || "") : (req.body?.token || "");
+      if (expected && provided !== expected) {
+        return res.status(401).json({ ok: false, error: "bad_token" });
+      }
+
+      const email = "admin@jiconnect.co";
+      const plain = "Admin123!";
+      const hash = await bcrypt.hash(plain, 10);
+
+      const existing = await UserModel.findOne({ email });
+      if (existing) {
+        existing.password = hash;
+        if (!existing.role) existing.role = "admin";
+        if (!existing.name) existing.name = "Super Admin";
+        await existing.save();
+      } else {
+        await UserModel.create({
+          email, password: hash, role: "admin", name: "Super Admin"
+        });
+      }
+      return res.json({ ok: true, email, password: plain });
+    } catch (e) {
+      console.error("seed-admin error:", e);
+      return res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  }
+
+  app.get("/api/dev/seed-admin", seedHandler);
+  app.post("/api/dev/seed-admin", express.json(), seedHandler);
+  console.log("⚙️  Inline /api/dev/seed-admin activé");
+}
+// === FIN INLINE SEED ROUTE ===
 
 // ---------- HEALTHCHECK ----------
 app.get("/api/health", (req, res) => {
