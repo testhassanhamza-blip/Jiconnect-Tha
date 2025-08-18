@@ -35,11 +35,20 @@ const corsOptions = {
     return callback(new Error("Not allowed by CORS: " + origin));
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  // ✅ Autorise aussi les en-têtes utilisés par le navigateur (préflight)
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "Cache-Control", "cache-control",
+    "Pragma", "pragma",
+    "Expires", "expires",
+    "X-Requested-With"
+  ],
   credentials: false
 };
 
 app.use(cors(corsOptions));
+// Important pour les requêtes préflight (OPTIONS)
 app.options("*", cors(corsOptions));
 // ---------- FIN CORS ----------
 
