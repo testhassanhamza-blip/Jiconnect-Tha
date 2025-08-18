@@ -1,27 +1,21 @@
-// frontend/src/api.js
-import axios from 'axios';
+// src/api.js
+import axios from "axios";
 
-// Permet de définir l'API en prod via variable d'env Vercel/Netlify
-// Ex: REACT_APP_API_BASE=https://jiconnect-back.onrender.com/api
-const BASE = process.env.REACT_APP_API_BASE || 'http://localhost:3001/api';
+/**
+ * Priorité :
+ * 1) Vite: VITE_API_BASE_URL
+ * 2) CRA : REACT_APP_API_BASE
+ * 3) Fallback prod : Render
+ * La valeur doit inclure /api à la fin
+ */
+const API_BASE =
+  (typeof import.meta !== "undefined" &&
+    import.meta.env &&
+    import.meta.env.VITE_API_BASE_URL) ||
+  process.env.REACT_APP_API_BASE ||
+  "https://jiconnect-backend.onrender.com/api";
 
-const api = axios.create({ baseURL: BASE });
-
-api.interceptors.request.use((config) => {
-  const t = localStorage.getItem('token');
-  if (t) config.headers.Authorization = `Bearer ${t}`;
-  return config;
-});
-
-api.interceptors.response.use(
-  (r) => r,
-  (err) => {
-    if (err?.response?.status === 401) {
-      localStorage.removeItem('token');
-      window.location.href = '/login';
-    }
-    return Promise.reject(err);
-  }
-);
+const api = axios.create({ baseURL: API_BASE });
 
 export default api;
+export { API_BASE };
