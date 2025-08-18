@@ -8,20 +8,14 @@ require("dotenv").config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-/* ------------------------------------------------------------------
-   CORS : autorise ton front Vercel + previews *.vercel.app
-   - On n'utilise PAS de cookies -> credentials:false
-   - On autorise les headers utilisés par le navigateur en preflight
-------------------------------------------------------------------- */
+// ---------- CORS CONFIG AMÉLIORÉE ----------
 const DEFAULT_ALLOWED = [
   "http://localhost:3000",
   "http://localhost:5173",
   "https://jiconnect-tha.vercel.app",
-  /\.vercel\.app$/ // toutes les previews Vercel
+  /\.vercel\.app$/ // autorise *.vercel.app
 ];
 
-// Origines additionnelles via env (séparées par virgules)
-// ex: FRONTEND_ORIGINS="https://foo.com,https://bar.com"
 const envOrigins =
   (process.env.FRONTEND_ORIGINS || "")
     .split(",")
@@ -32,43 +26,38 @@ const ALLOWED_ORIGINS = [...DEFAULT_ALLOWED, ...envOrigins];
 
 const corsOptions = {
   origin(origin, callback) {
-    // Autoriser Postman, server-to-server et healthchecks (origin = undefined)
-    if (!origin) return callback(null, true);
-
+    if (!origin) return callback(null, true); // Postman / server-to-server
     const ok = ALLOWED_ORIGINS.some(rule => {
       if (rule instanceof RegExp) return rule.test(origin);
       return rule === origin;
     });
-
     if (ok) return callback(null, true);
     return callback(new Error("Not allowed by CORS: " + origin));
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  // Autorise les en-têtes classiques vus en preflight
+  // ✅ Autorise aussi les en-têtes utilisés par le navigateur (préflight)
   allowedHeaders: [
     "Content-Type",
     "Authorization",
     "Cache-Control", "cache-control",
     "Pragma", "pragma",
     "Expires", "expires",
-    "X-Requested-With", "x-requested-with",
-    "Accept", "accept"
+    "X-Requested-With"
   ],
-  credentials: false // pas de cookies -> false
+  credentials: false
 };
 
 app.use(cors(corsOptions));
-// indispensable pour les OPTIONS (preflight)
+// Important pour les requêtes préflight (OPTIONS)
 app.options("*", cors(corsOptions));
-
-/* ------------------------------------------------------------------ */
+// ---------- FIN CORS ----------
 
 app.use(express.json());
 
 // ⚠️ /public est éphémère sur beaucoup de PaaS (OK pour tests)
 app.use(express.static(path.join(__dirname, "public")));
 
-// ----------------------- MONGODB -----------------------
+// ---------- MONGODB ----------
 mongoose
   .connect(process.env.MONGO_URI || "mongodb://127.0.0.1:27017/jiconnect", {
     useNewUrlParser: true,
@@ -77,14 +66,14 @@ mongoose
   .then(() => console.log("✅ Connexion MongoDB réussie"))
   .catch((err) => console.error("❌ Erreur MongoDB :", err));
 
-// ------------------------ ROUTES -----------------------
-app.use("/api", require("./routes/pay"));        // /api/pay
-app.use("/api", require("./routes/ventes"));     // /api/ventes
-app.use("/api", require("./routes/status"));     // /api/status
-app.use("/api", require("./routes/auth"));       // /api/auth/*
-app.use("/api", require("./routes/connected"));  // /api/hotspot/active etc.
+// ---------- ROUTES ----------
+app.use("/api", require("./routes/pay"));       // /api/pay
+app.use("/api", require("./routes/ventes"));    // /api/ventes
+app.use("/api", require("./routes/status"));
+app.use("/api", require("./routes/auth"));
+app.use("/api", require("./routes/connected"));
 
-// (Optionnel) Route de seed auto-montée si présente et activée (fichier)
+// (Optionnel) Route de seed auto-montée si présente et activée (version fichier)
 if (process.env.ENABLE_SEED === "true") {
   try {
     app.use("/api/dev", require("./routes/devSeed"));
@@ -95,6 +84,7 @@ if (process.env.ENABLE_SEED === "true") {
 }
 
 /* === INLINE SEED ROUTE (fallback si routes/devSeed.js absent) ===
+   Permet de (ré)créer l'admin :
    - email: admin@jiconnect.co
    - pass : Admin123!
    Activation:
@@ -102,13 +92,13 @@ if (process.env.ENABLE_SEED === "true") {
    - Optionnel: DEV_SEED_TOKEN doit matcher ?token=... (GET) ou body.token (POST)
 */
 if (process.env.ENABLE_SEED === "true") {
-  // bcrypt natif -> sinon fallback sur bcryptjs
+  // Essaie d'abord bcrypt (natif), sinon fallback sur bcryptjs
   let bcryptLib;
   try { bcryptLib = require("bcrypt"); } catch { try { bcryptLib = require("bcryptjs"); } catch {} }
 
   const mongooseLocal = require("mongoose");
 
-  // Essaie d'utiliser le modèle User/Admin existant, sinon modèle minimal
+  // Essaie d'utiliser le modèle User/Admin existant, sinon modèle minimal sur "users"
   let UserModel;
   try { UserModel = require("./models/User"); } catch {}
   if (!UserModel) { try { UserModel = require("./models/Admin"); } catch {} }
@@ -133,7 +123,7 @@ if (process.env.ENABLE_SEED === "true") {
       }
 
       if (!bcryptLib) {
-        console.error("❌ Ni 'bcrypt' ni 'bcryptjs' trouvés.");
+        console.error("❌ Ni 'bcrypt' ni 'bcryptjs' trouvés. Ajoute l'un des deux dans package.json.");
         return res.status(500).json({ ok: false, error: "bcrypt_missing" });
       }
 
@@ -148,7 +138,9 @@ if (process.env.ENABLE_SEED === "true") {
         if (!existing.name) existing.name = "Super Admin";
         await existing.save();
       } else {
-        await UserModel.create({ email, password: hash, role: "admin", name: "Super Admin" });
+        await UserModel.create({
+          email, password: hash, role: "admin", name: "Super Admin"
+        });
       }
       return res.json({ ok: true, email, password: plain });
     } catch (e) {
@@ -163,12 +155,12 @@ if (process.env.ENABLE_SEED === "true") {
 }
 // === FIN INLINE SEED ROUTE ===
 
-// ---------------------- HEALTHCHECK --------------------
+// ---------- HEALTHCHECK ----------
 app.get("/api/health", (req, res) => {
   res.json({ ok: true, ts: new Date().toISOString() });
 });
 
-// ----------------------- START -------------------------
+// ---------- DÉMARRAGE ----------
 app.listen(PORT, () => {
   console.log(`🚀 Serveur Jiconnect actif sur http://localhost:${PORT}`);
 });
