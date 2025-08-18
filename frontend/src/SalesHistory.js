@@ -1,321 +1,231 @@
-// src/SalesHistory.js
 import React, { useState, useEffect, useMemo } from 'react';
 import api from './api';
 
-/**
- * On déduit l'origine API (sans /api) pour construire les liens PDF.
- * - Si api.defaults.baseURL = https://.../api => API_ORIGIN = https://...
- * - Sinon, fallback sur le backend Render connu.
- */
-const API_BASE = (api?.defaults?.baseURL) || 'https://jiconnect-backend.onrender.com/api';
-const API_ORIGIN = API_BASE.replace(/\/api\/?$/, '');
-
-const COLORS = {
-  bg: '#0a174e',
-  accent: '#f5d042',
-  text: '#ffffff',
-  soft: '#111827',
-  border: '#26324f',
-};
-
-function formatTZS(n) {
-  const num = Number(n || 0);
-  return num.toLocaleString('fr-TZ', { maximumFractionDigits: 0 }) + ' TZS';
-}
-
-function fmtDate(d) {
-  if (!d) return '—';
-  const t = new Date(d);
-  if (isNaN(t.getTime())) return '—';
-  return t.toLocaleString('fr-FR', {
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit'
-  });
-}
-
-export default function SalesHistory() {
+function SalesHistory() {
   const [ventes, setVentes] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [filtre, setFiltre] = useState('all'); // all | today | month | range
+  const [fromDate, setFromDate] = useState(''); // YYYY-MM-DD
+  const [toDate, setToDate] = useState('');     // YYYY-MM-DD
+  const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
 
-  // filtres
-  const [filtre, setFiltre] = useState('all'); // 'all' | 'today' | 'month'
-  const [search, setSearch] = useState('');
+  const today = new Date().toISOString().slice(0, 10);
+  const thisMonth = today.slice(0, 7); // YYYY-MM
 
-  useEffect(() => {
-    let alive = true;
+  const refetch = async () => {
     setLoading(true);
     setErr('');
+    try {
+      const res = await api.get('/ventes', { headers: { 'Cache-Control': 'no-cache' } });
+      setVentes(Array.isArray(res.data) ? res.data : []);
+    } catch (e) {
+      console.error('Erreur chargement ventes', e);
+      setErr("Imeshindikana kupakua mauzo. Jaribu tena.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    api.get('/ventes')
-      .then(res => {
-        if (!alive) return;
-        const data = Array.isArray(res.data) ? res.data : (res.data?.data || []);
-        setVentes(data);
-      })
-      .catch(e => {
-        console.error('Erreur chargement ventes', e);
-        setErr(`Impossible de charger les ventes. (GET ${API_BASE}/ventes)`);
-      })
-      .finally(() => alive && setLoading(false));
-
-    return () => { alive = false; };
+  useEffect(() => {
+    refetch();
   }, []);
 
-  const todayISO = new Date().toISOString().slice(0, 10);
-
+  // Filtrage
   const ventesFiltrees = useMemo(() => {
-    let arr = Array.isArray(ventes) ? [...ventes] : [];
+    return ventes.filter((vente) => {
+      const nomClient = vente.fullName || vente.nom || '';
+      const numeroClient = vente.phoneNumber || vente.numero || '';
+      const matchTexte =
+        nomClient.toLowerCase().includes(search.toLowerCase()) ||
+        numeroClient.includes(search);
 
-    // Filtre période
-    arr = arr.filter(v => {
-      const when = v.createdAt || v.date || v.timestamp;
-      const iso = when ? new Date(when).toISOString().slice(0, 10) : '';
-      if (filtre === 'today' && iso !== todayISO) return false;
-      if (filtre === 'month' && (!iso || !iso.startsWith(todayISO.slice(0, 7)))) return false;
-      return true;
+      const d = new Date(vente.date);
+      if (Number.isNaN(d.getTime())) return false;
+      const iso = d.toISOString().slice(0, 10);
+
+      if (filtre === 'today' && iso !== today) return false;
+      if (filtre === 'month' && !iso.startsWith(thisMonth)) return false;
+      if (filtre === 'range') {
+        if (fromDate && iso < fromDate) return false;
+        if (toDate && iso > toDate) return false;
+      }
+
+      return matchTexte;
     });
-
-    // Recherche texte
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      arr = arr.filter(v => {
-        const parts = [
-          v.fullName, v.nom, v.customerName,
-          v.phoneNumber, v.phone, v.msisdn, v.numero,
-          v.planName, v.forfait, v.plan,
-          v.transactionId, v.txid, v.reference,
-          v.method, v.paymentMethod, v.username,
-        ].filter(Boolean).join(' ').toLowerCase();
-        return parts.includes(q);
-      });
-    }
-
-    // Tri (récent d'abord)
-    arr.sort((a, b) =>
-      new Date(b.createdAt || b.date || b.timestamp || 0) -
-      new Date(a.createdAt || a.date || a.timestamp || 0)
-    );
-
-    return arr;
-  }, [ventes, filtre, search, todayISO]);
+  }, [ventes, search, filtre, fromDate, toDate, today, thisMonth]);
 
   const totalVentes = ventesFiltrees.length;
-  const totalMontant = useMemo(() => {
-    return ventesFiltrees.reduce((sum, v) => {
-      const n = Number(
-        v.amount ?? v.montant ?? v.total ?? v.price ?? (v.meta && v.meta.amount) ?? 0
-      );
-      return sum + (isNaN(n) ? 0 : n);
-    }, 0);
-  }, [ventesFiltrees]);
+  const totalMontant = ventesFiltrees.reduce(
+    (sum, v) => sum + Number(v.amount || v.montant || 0),
+    0
+  );
 
-  function getReceiptHref(v) {
-    // Priorité aux URLs absolues si déjà fournies
-    const absolute = v.receiptUrl || (v.meta && v.meta.receiptUrl);
-    if (absolute && /^https?:\/\//i.test(absolute)) return absolute;
+  // Export CSV (filtré)
+  const exportCSV = () => {
+    const headers = [
+      'Date',
+      'Nom',
+      'Téléphone',
+      'Forfait',
+      'Montant_TZS',
+      'Username',
+      'Password',
+      'Durée',
+      'ReceiptId',
+    ];
 
-    // Chemin relatif renvoyé par l'API (ex: /receipts/xxx.pdf)
-    const rel = v.pdfPath || v.receiptPath || v.receiptUrl;
-    if (rel) {
-      return `${API_ORIGIN}${rel.startsWith('/') ? '' : '/'}${rel}`;
-    }
+    const rows = ventesFiltrees.map(v => ([
+      new Date(v.date).toISOString(),
+      (v.fullName || v.nom || '').replace(/[\r\n]+/g, ' '),
+      v.phoneNumber || v.numero || '',
+      v.planName || v.forfait || '',
+      Number(v.amount || v.montant || 0),
+      v.username || '',
+      v.password || '',
+      v.duration || '',
+      v.receiptId || '',
+    ]));
 
-    // Ancien schéma via receiptId
-    if (v.receiptId) {
-      return `${API_ORIGIN}/receipts/${v.receiptId}.pdf`;
-    }
+    const all = [headers, ...rows]
+      .map(r => r.map(x => {
+        const s = String(x ?? '');
+        // Encadre de guillemets si besoin
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      }).join(','))
+      .join('\n');
 
-    return null;
-  }
+    const blob = new Blob([all], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const fLabel =
+      filtre === 'today' ? `_${today}` :
+      filtre === 'month' ? `_${thisMonth}` :
+      (filtre === 'range' ? `_${fromDate || 'start'}_${toDate || 'end'}` : '');
+    a.href = url;
+    a.download = `ventes${fLabel}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
-    <div style={styles.page}>
-      <div style={styles.header}>
-        <h2 style={{ margin: 0, color: COLORS.accent }}>Historia ya mauzo (Sales History)</h2>
-        <div style={{ color: '#9ca3af', fontSize: 12 }}>
-          API: <code>{API_BASE}/ventes</code>
+    <div style={styles.container}>
+      <h1 style={styles.title}>Historia ya mauzo (Sales History)</h1>
+
+      {/* Barre d’actions */}
+      <div style={styles.actions}>
+        <button onClick={refetch} style={styles.refreshBtn}>🔄 Actualiser</button>
+        <button onClick={exportCSV} style={styles.exportBtn} disabled={ventesFiltrees.length === 0}>
+          ⬇️ Exporter CSV ({ventesFiltrees.length})
+        </button>
+      </div>
+
+      {/* Stats */}
+      <div style={styles.statsContainer}>
+        <div style={styles.statCard}>
+          <h3 style={styles.statTitle}>Jumla ya Mauzo</h3>
+          <p style={styles.statValue}>{loading ? '…' : totalVentes}</p>
+        </div>
+        <div style={styles.statCard}>
+          <h3 style={styles.statTitle}>Mapato yote (TZS)</h3>
+          <p style={styles.statValue}>{loading ? '…' : totalMontant}</p>
         </div>
       </div>
 
-      {/* Stats & Filtres */}
-      <div style={styles.filters}>
-        <div style={styles.statsRow}>
-          <div style={styles.statCard}>
-            <div style={styles.statLabel}>Jumla ya Mauzo</div>
-            <div style={styles.statValue}>{totalVentes}</div>
-          </div>
-          <div style={styles.statCard}>
-            <div style={styles.statLabel}>Mapato yote</div>
-            <div style={styles.statValue}>{formatTZS(totalMontant)}</div>
-          </div>
-        </div>
+      {/* Recherche + filtres */}
+      <div style={styles.controls}>
+        <input
+          type="text"
+          placeholder="Tafuta jina au namba..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={styles.input}
+        />
 
-        <div style={styles.ctrlRow}>
-          <input
-            type="text"
-            placeholder="Tafuta: jina, namba, kifurushi, TxID…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ ...styles.input, flex: 1, minWidth: 220 }}
-          />
-          <select value={filtre} onChange={(e) => setFiltre(e.target.value)} style={styles.select}>
-            <option value="all">Zote (Tous)</option>
-            <option value="today">Leo (Aujourd’hui)</option>
-            <option value="month">Mwezi huu (Ce mois)</option>
-          </select>
-        </div>
-      </div>
+        <select value={filtre} onChange={(e) => setFiltre(e.target.value)} style={styles.select}>
+          <option value="all">Zote</option>
+          <option value="today">Leo</option>
+          <option value="month">Mwezi huu</option>
+          <option value="range">Période</option>
+        </select>
 
-      {/* Tableau */}
-      <div style={styles.panel}>
-        {loading ? (
-          <div style={styles.loading}>Inapakia… / Chargement…</div>
-        ) : err ? (
-          <div style={styles.error}>{err}</div>
-        ) : ventesFiltrees.length === 0 ? (
-          <div style={styles.empty}>Hakuna mauzo kwa sasa / Aucune vente.</div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th>Tarehe (Date)</th>
-                  <th>Mteja (Client)</th>
-                  <th>Simu</th>
-                  <th>Kifurushi (Plan)</th>
-                  <th>Kiasi (Montant)</th>
-                  <th>Mbinu (Méthode)</th>
-                  <th>TxID</th>
-                  <th>Reçu</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ventesFiltrees.map((v, i) => {
-                  const name = v.fullName || v.nom || v.customerName || '—';
-                  const phone = v.phoneNumber || v.phone || v.msisdn || v.numero || '—';
-                  const plan = v.planName || v.forfait || v.plan ||
-                    (v.duration ? `${v.duration}${v.speed ? ' / ' + v.speed : ''}` : '—');
-                  const amount = v.amount ?? v.montant ?? v.total ?? v.price ?? (v.meta && v.meta.amount);
-                  const method = v.method || v.paymentMethod || '—';
-                  const txid = v.transactionId || v.txid || v.reference || '—';
-                  const when = v.createdAt || v.date || v.timestamp;
-                  const receiptHref = getReceiptHref(v);
-
-                  return (
-                    <tr key={v._id || v.id || i}>
-                      <td>{fmtDate(when)}</td>
-                      <td>{name}</td>
-                      <td>{phone}</td>
-                      <td>{plan}</td>
-                      <td>{formatTZS(amount)}</td>
-                      <td>{method}</td>
-                      <td style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' }}>{txid}</td>
-                      <td>
-                        {receiptHref ? (
-                          <a href={receiptHref} target="_blank" rel="noreferrer" style={styles.link}>
-                            Ouvrir
-                          </a>
-                        ) : '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+        {filtre === 'range' && (
+          <div style={styles.rangeWrap}>
+            <label style={styles.label}>Du</label>
+            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={styles.date} />
+            <label style={styles.label}>au</label>
+            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={styles.date} />
           </div>
         )}
+      </div>
+
+      {/* Erreur éventuelle */}
+      {err && <div style={styles.error}>{err}</div>}
+
+      {/* Cartes */}
+      <div style={styles.grid}>
+        {loading ? (
+          <p style={styles.empty}>Inapakia…</p>
+        ) : (ventesFiltrees.length === 0 ? (
+          <p style={styles.empty}>Hakuna mauzo yaliyopatikana.</p>
+        ) : (
+          ventesFiltrees.map((vente, index) => (
+            <div key={index} style={styles.card}>
+              <h3 style={styles.name}>{vente.fullName || vente.nom}</h3>
+              <p><strong>Simu:</strong> {vente.phoneNumber || vente.numero}</p>
+              <p><strong>Kifurushi:</strong> {vente.planName || vente.forfait} – {vente.amount || vente.montant} TZS</p>
+              <p><strong>Tarehe:</strong> {new Date(vente.date).toLocaleString()}</p>
+              {vente.receiptId && (
+                <a
+                  href={`/receipts/${vente.receiptId}.pdf`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={styles.link}
+                >
+                  Pakua Receipt
+                </a>
+              )}
+            </div>
+          ))
+        ))}
       </div>
     </div>
   );
 }
 
-/* ===== Styles (dark, propre, responsive) ===== */
 const styles = {
-  page: {
-    minHeight: '100vh',
-    background: COLORS.bg,
-    color: COLORS.text,
-    padding: 16,
-    fontFamily: 'Segoe UI, Tahoma, sans-serif',
+  container: { padding: '30px', backgroundColor: '#0b0f1a', minHeight: '100vh', color: '#ffffff', fontFamily: 'Segoe UI, sans-serif' },
+  title: { fontSize: '24px', color: '#f5d042', textAlign: 'center', marginBottom: '16px' },
+
+  actions: { display: 'flex', gap: 10, justifyContent: 'center', marginBottom: 12 },
+  refreshBtn: {
+    background: '#111827', color: '#e5e7eb', border: '1px solid #374151',
+    borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontWeight: 600
   },
-  header: {
-    display: 'flex',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    marginBottom: 12,
+  exportBtn: {
+    background: '#f5d042', color: '#0a174e', border: '1px solid #f5d042',
+    borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontWeight: 700
   },
-  filters: {
-    background: COLORS.soft,
-    border: `1px solid ${COLORS.border}`,
-    borderRadius: 14,
-    padding: 12,
-    marginBottom: 14,
-  },
-  statsRow: {
-    display: 'flex',
-    gap: 10,
-    flexWrap: 'wrap',
-    marginBottom: 10,
-  },
-  statCard: {
-    flex: '0 0 180px',
-    background: '#0f172a',
-    border: `1px solid ${COLORS.border}`,
-    borderRadius: 12,
-    padding: 12,
-  },
-  statLabel: { fontSize: 12, color: '#a1a1aa', marginBottom: 4 },
-  statValue: { fontSize: 18, fontWeight: 700, color: COLORS.accent },
-  ctrlRow: {
-    display: 'flex',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  input: {
-    background: '#0f172a',
-    color: COLORS.text,
-    border: `1px solid ${COLORS.border}`,
-    padding: '10px 12px',
-    borderRadius: 10,
-  },
-  select: {
-    background: '#0f172a',
-    color: COLORS.text,
-    border: `1px solid ${COLORS.border}`,
-    padding: '10px 12px',
-    borderRadius: 10,
-    minWidth: 160,
-  },
-  panel: {
-    background: COLORS.soft,
-    border: `1px solid ${COLORS.border}`,
-    borderRadius: 14,
-    padding: 0,
-  },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-  },
-  loading: {
-    padding: 24,
-    textAlign: 'center',
-  },
-  empty: {
-    padding: 24,
-    textAlign: 'center',
-    color: '#cbd5e1',
-  },
-  error: {
-    padding: 14,
-    color: '#ffb4b4',
-    background: '#4b1d1d',
-    borderRadius: 10,
-    margin: 12,
-  },
-  link: {
-    color: COLORS.accent,
-    textDecoration: 'underline',
-    fontWeight: 600,
-  },
+
+  statsContainer: { display: 'flex', justifyContent: 'center', gap: '20px', marginBottom: '16px', flexWrap: 'wrap' },
+  statCard: { backgroundColor: '#111827', padding: '20px', borderRadius: '10px', width: '200px', textAlign: 'center', boxShadow: '0 3px 6px rgba(0,0,0,0.2)' },
+  statTitle: { fontSize: '14px', color: '#ffffff', marginBottom: '6px' },
+  statValue: { fontSize: '22px', color: '#f5d042', fontWeight: 'bold' },
+
+  controls: { display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '16px', justifyContent: 'center' },
+  input: { padding: '10px', borderRadius: '5px', border: '1px solid #444', width: '260px', backgroundColor: '#111827', color: '#fff' },
+  select: { padding: '10px', borderRadius: '5px', border: '1px solid #444', backgroundColor: '#111827', color: '#fff' },
+
+  rangeWrap: { display: 'flex', alignItems: 'center', gap: 8 },
+  label: { color: '#cbd5e1', fontSize: 12 },
+  date: { padding: '8px', borderRadius: 6, border: '1px solid #444', background: '#111827', color: '#fff' },
+
+  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '15px' },
+  card: { backgroundColor: '#111827', padding: '14px', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.2)', fontSize: '14px', lineHeight: '1.4em' },
+  name: { color: '#f5d042', marginBottom: '6px', fontSize: '16px' },
+  link: { marginTop: '8px', display: 'inline-block', color: '#f5d042', fontWeight: 'bold', textDecoration: 'underline', fontSize: '13px' },
+  empty: { textAlign: 'center', color: '#ccc', gridColumn: '1 / -1', marginTop: '20px' },
+  error: { backgroundColor: '#4b1d1d', color: '#ffb4b4', padding: '8px 10px', borderRadius: 6, margin: '10px auto', fontSize: 13, maxWidth: 640, textAlign: 'center' },
 };
+
+export default SalesHistory;
