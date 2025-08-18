@@ -83,7 +83,10 @@ if (process.env.ENABLE_SEED === "true") {
    - Optionnel: DEV_SEED_TOKEN doit matcher ?token=... (GET) ou body.token (POST)
 */
 if (process.env.ENABLE_SEED === "true") {
-  const bcrypt = require("bcryptjs");
+  // Essaie d'abord bcrypt (natif), sinon fallback sur bcryptjs
+  let bcryptLib;
+  try { bcryptLib = require("bcrypt"); } catch { try { bcryptLib = require("bcryptjs"); } catch {} }
+
   const mongooseLocal = require("mongoose");
 
   // Essaie d'utiliser le modèle User/Admin existant, sinon modèle minimal sur "users"
@@ -110,9 +113,14 @@ if (process.env.ENABLE_SEED === "true") {
         return res.status(401).json({ ok: false, error: "bad_token" });
       }
 
+      if (!bcryptLib) {
+        console.error("❌ Ni 'bcrypt' ni 'bcryptjs' trouvés. Ajoute l'un des deux dans package.json.");
+        return res.status(500).json({ ok: false, error: "bcrypt_missing" });
+      }
+
       const email = "admin@jiconnect.co";
       const plain = "Admin123!";
-      const hash = await bcrypt.hash(plain, 10);
+      const hash = await bcryptLib.hash(plain, 10);
 
       const existing = await UserModel.findOne({ email });
       if (existing) {
