@@ -9,13 +9,11 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // ---------- CORS CONFIG AMÉLIORÉE ----------
-// Autorise localhost, ton domaine principal, et TOUTES les previews *.vercel.app
-// Tu peux aussi ajouter des domaines via FRONTEND_ORIGINS (séparés par des virgules)
 const DEFAULT_ALLOWED = [
   "http://localhost:3000",
   "http://localhost:5173",
   "https://jiconnect-tha.vercel.app",
-  /\.vercel\.app$/ // <-- autorise n'importe quelle URL *.vercel.app
+  /\.vercel\.app$/ // autorise *.vercel.app
 ];
 
 const envOrigins =
@@ -24,35 +22,30 @@ const envOrigins =
     .map(s => s.trim())
     .filter(Boolean);
 
-// Mélange : valeurs par défaut + celles de l'env (en chaînes exactes)
 const ALLOWED_ORIGINS = [...DEFAULT_ALLOWED, ...envOrigins];
 
 const corsOptions = {
   origin(origin, callback) {
-    // Autoriser les requêtes server-to-server / Postman (origin = undefined)
-    if (!origin) return callback(null, true);
-
+    if (!origin) return callback(null, true); // Postman / server-to-server
     const ok = ALLOWED_ORIGINS.some(rule => {
       if (rule instanceof RegExp) return rule.test(origin);
       return rule === origin;
     });
-
     if (ok) return callback(null, true);
     return callback(new Error("Not allowed by CORS: " + origin));
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: false // garde false si tu n'utilises pas de cookies
+  credentials: false
 };
 
 app.use(cors(corsOptions));
-// Important pour les requêtes préflight (OPTIONS)
 app.options("*", cors(corsOptions));
 // ---------- FIN CORS ----------
 
 app.use(express.json());
 
-// ⚠️ /public est éphémère sur beaucoup de PaaS gratuits (OK pour tests)
+// ⚠️ /public est éphémère sur beaucoup de PaaS (OK pour tests)
 app.use(express.static(path.join(__dirname, "public")));
 
 // ---------- MONGODB ----------
@@ -65,10 +58,11 @@ mongoose
   .catch((err) => console.error("❌ Erreur MongoDB :", err));
 
 // ---------- ROUTES ----------
-app.use("/api", require("./routes/pay"));
-app.use("/api", require("./routes/status"));
-app.use("/api", require("./routes/auth"));
-app.use("/api", require("./routes/connected")); // Connected Users
+app.use("/api", require("./routes/pay"));       // /api/pay
+app.use("/api", require("./routes/ventes"));    // /api/ventes   ← AJOUT
+app.use("/api", require("./routes/status"));    // (existant)
+app.use("/api", require("./routes/auth"));      // (existant)
+app.use("/api", require("./routes/connected")); // (existant)
 
 // (Optionnel) Route de seed auto-montée si présente et activée
 if (process.env.ENABLE_SEED === "true") {
