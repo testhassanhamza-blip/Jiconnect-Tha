@@ -1,8 +1,14 @@
+// src/LoginAdmin.js
 import React, { useState } from 'react';
 import axios from 'axios';
 
-// Lit l’URL d’API depuis l’env (Vercel). Fallback pour le dev local.
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:3001/api';
+// 1) Essaie d'abord Vercel/Vite: VITE_API_BASE_URL
+// 2) Puis CRA: REACT_APP_API_BASE
+// 3) Sinon fallback sur Render (prod) avec /api
+const API_BASE =
+  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL) ||
+  process.env.REACT_APP_API_BASE ||
+  'https://jiconnect-backend.onrender.com/api';
 
 function LoginAdmin() {
   const [email, setEmail] = useState('');
@@ -16,11 +22,21 @@ function LoginAdmin() {
     setLoading(true);
     try {
       const res = await axios.post(`${API_BASE}/auth/login`, { email, password });
-      localStorage.setItem('token', res.data.token);
-      window.location.href = '/';
+
+      if (res?.data?.token) {
+        localStorage.setItem('token', res.data.token);
+        localStorage.setItem('user', JSON.stringify(res.data.user || {}));
+        window.location.href = '/'; // change en '/dashboard' si tu as cette route
+      } else {
+        setErr('Réponse inattendue du serveur.');
+      }
     } catch (e) {
       console.error(e);
-      setErr('Email au mot de passe invalide.');
+      if (e?.response?.status === 401) {
+        setErr('Email ou mot de passe invalide.');
+      } else {
+        setErr("Impossible de joindre l'API. Vérifie l’URL API et le CORS.");
+      }
     } finally {
       setLoading(false);
     }
@@ -55,8 +71,10 @@ function LoginAdmin() {
           </button>
         </form>
 
-        {/* Petit indicateur utile pour vérifier la bonne URL côté prod */}
-        <p style={styles.hint}>API: <code>{API_BASE}</code></p>
+        {/* Indicateur pour vérifier l’URL API réellement utilisée */}
+        <p style={styles.hint}>
+          API: <code>{API_BASE}</code>
+        </p>
       </div>
     </div>
   );
