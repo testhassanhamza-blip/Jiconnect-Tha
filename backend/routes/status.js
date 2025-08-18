@@ -3,13 +3,17 @@ const express = require('express');
 const router = express.Router();
 const { verifierStatutRouteur } = require('./mikrotik');
 
-router.get('/router/status', async (req, res) => {
+//  GET /api/status
+//  Renvoie l'état du routeur (ou false si désactivé/erreur)
+router.get('/status', async (req, res) => {
   try {
-    const online = await verifierStatutRouteur();
-    res.json({ online });
-  } catch (error) {
-    res.status(500).json({ online: false, error: 'Erreur serveur' });
+    const online = await verifierStatutRouteur(); // boolean
+    return res.json({ ok: true, online });
+  } catch (e) {
+    console.error('status error:', e?.message || e);
+    // On ne renvoie pas d'erreur fatale pour ne pas casser le dashboard
+    return res.json({ ok: true, online: false });
   }
 });
 
-module.exports = router; // ✅ IMPORTANT
+module.exports = router;
