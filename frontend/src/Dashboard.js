@@ -1,117 +1,222 @@
-import React, { useState, useEffect } from 'react';
-import DashboardChart from './DashboardChart';
-import { useNavigate } from 'react-router-dom';
-import api from './api';
+import React, { useEffect, useMemo, useState } from "react";
+import api from "./api";
+
+/**
+ * Dashboard 100% réel :
+ * - charge /ventes depuis le backend (MongoDB)
+ * - calcule les totaux (nombre ventes, montant)
+ * - calcule les revenus par jour pour le graphique
+ * - interroge /status pour l’état du routeur (en prod cloud = false si Mikrotik désactivé)
+ */
 
 function Dashboard() {
-  const [filtre, setFiltre] = useState('all');
-  const [routerStatus, setRouterStatus] = useState(null);
-  const navigate = useNavigate();
+  const [ventes, setVentes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [routerOnline, setRouterOnline] = useState(null);
+  const [filtre, setFiltre] = useState("all"); // today | month | all
+  const [err, setErr] = useState("");
 
-  const actualiserDashboard = () => {
-    setRouterStatus(null);
-    api.get('/router/status')
-      .then(res => setRouterStatus(res.data.online))
-      .catch(() => setRouterStatus(false));
-  };
-
+  // 1) Charger les ventes réelles
   useEffect(() => {
-    actualiserDashboard();
+    let cancelled = false;
+
+    async function fetchAll() {
+      try {
+        setLoading(true);
+        setErr("");
+
+        const [vRes, sRes] = await Promise.allSettled([
+          api.get("/ventes"),
+          api.get("/status"), // selon ton routeur: {online:true} ou {routerOnline:true}
+        ]);
+
+        if (!cancelled) {
+          if (vRes.status === "fulfilled") setVentes(Array.isArray(vRes.value.data) ? vRes.value.data : []);
+          else {
+            console.error("Erreur /ventes:", vRes.reason);
+            setErr("Erreur lors du chargement des ventes.");
+          }
+
+          if (sRes.status === "fulfilled") {
+            const d = sRes.value.data || {};
+            setRouterOnline(Boolean(d.online ?? d.routerOnline));
+          } else {
+            // pas bloquant
+            setRouterOnline(false);
+          }
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    fetchAll();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const toutesLesVentes = [
-    { nom: "Kassongo M.", numero: "+255 717 000 123", forfait: "1 DAY", montant: 1000, date: "2025-08-05 12:00", receiptUrl: "/receipts/2025-08-05_Kassongo.pdf" },
-    { nom: "Mariam J.", numero: "+255 716 999 456", forfait: "7 DAYS", montant: 6500, date: "2025-08-06 14:25", receiptUrl: "/receipts/2025-08-06_Mariam.pdf" },
-  ];
+  // 2) Filtrer les ventes selon l’onglet (today / month / all)
+  const ventesFiltrees = useMemo(() => {
+    const todayISO = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const monthPrefix = todayISO.slice(0, 7); // YYYY-MM
 
-  const today = new Date().toISOString().slice(0, 10);
-  const ventesFiltrees = toutesLesVentes.filter((vente) => {
-    const venteDate = vente.date.slice(0, 10);
-    if (filtre === 'today') return venteDate === today;
-    if (filtre === 'month') return venteDate.slice(0, 7) === today.slice(0, 7);
-    return true;
-  });
+    return ventes.filter((v) => {
+      const d = new Date(v.date);
+      if (Number.isNaN(d.getTime())) return false;
+      const iso = d.toISOString().slice(0, 10);
+      if (filtre === "today") return iso === todayISO;
+      if (filtre === "month") return iso.startsWith(monthPrefix);
+      return true; // all
+    });
+  }, [ventes, filtre]);
 
-  const totalMontant = ventesFiltrees.reduce((sum, vente) => sum + vente.montant, 0);
+  // 3) KPIs
   const totalVentes = ventesFiltrees.length;
+  const totalMontant = ventesFiltrees.reduce(
+    (sum, v) => sum + Number(v.amount ?? v.montant ?? 0),
+    0
+  );
+
+  // 4) Données du graphique (revenus par jour sur la période visible)
+  const chartData = useMemo(() => {
+    // groupe par YYYY-MM-DD
+    const byDay = new Map();
+    for (const v of ventesFiltrees) {
+      const d = new Date(v.date);
+      if (Number.isNaN(d.getTime())) continue;
+      const key = d.toISOString().slice(0, 10);
+      const amt = Number(v.amount ?? v.montant ?? 0);
+      byDay.set(key, (byDay.get(key) || 0) + amt);
+    }
+
+    // ordre chronologique
+    const rows = Array.from(byDay.entries())
+      .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+      .map(([date, montant]) => ({ date, montant }));
+
+    // si aucun point → on affiche un seul 0 pour garder l’échelle
+    return rows.length ? rows : [{ date: new Date().toISOString().slice(0, 10), montant: 0 }];
+  }, [ventesFiltrees]);
+
+  const maxY = Math.max(...chartData.map((r) => r.montant || 0), 0) || 1;
 
   return (
-    <div style={styles.container}>
-      {/* Bandeau haut */}
-      <div style={styles.header}>
-        <div>
-          <h1 style={styles.title}>Dashibodi ya Jiconnect</h1>
-          <p style={styles.subtitle}>Muhtasari wa mauzo na hali ya router</p>
+    <div style={s.page}>
+      <h1 style={s.h1}>Dashibodi ya Jiconnect</h1>
+      <p style={s.sub}>Muhtasari wa mauzo na hali ya router</p>
+
+      {/* Barre d’état + filtres */}
+      <div style={s.toolbar}>
+        <div style={s.statusWrap}>
+          <span style={s.statusLabel}>Statut du routeur :</span>
+          <span
+            style={{
+              ...s.statusPill,
+              backgroundColor:
+                routerOnline === null
+                  ? "#6b7280" // chargement
+                  : routerOnline
+                  ? "#16a34a"
+                  : "#b91c1c",
+            }}
+          >
+            {routerOnline === null
+              ? "Chargement…"
+              : routerOnline
+              ? "En ligne"
+              : "Hors ligne"}
+          </span>
         </div>
-        <button onClick={actualiserDashboard} style={styles.refreshBtn}>🔄 Actualiser</button>
-      </div>
 
-      {/* Statut routeur */}
-      <div style={styles.routerStatus}>
-        <span style={{ fontWeight: '500' }}>Statut du routeur :</span>
-        <span style={{
-          backgroundColor: routerStatus === true ? '#00c851' : '#ff4444',
-          color: '#fff',
-          padding: '6px 12px',
-          borderRadius: '20px',
-          fontSize: '14px',
-          fontWeight: 'bold'
-        }}>
-          {routerStatus === true ? 'En ligne' : routerStatus === false ? 'Hors ligne' : 'Chargement...'}
-        </span>
-      </div>
-
-      {/* Filtres */}
-      <div style={styles.filtres}>
-        <button onClick={() => setFiltre('today')} style={filtre === 'today' ? styles.activeBtn : styles.btn}>Leo</button>
-        <button onClick={() => setFiltre('month')} style={filtre === 'month' ? styles.activeBtn : styles.btn}>Mwezi huu</button>
-        <button onClick={() => setFiltre('all')} style={filtre === 'all' ? styles.activeBtn : styles.btn}>Zote</button>
-      </div>
-
-      {/* Résumés */}
-      <div style={styles.summaryContainer}>
-        <div style={styles.card}>
-          <h2 style={styles.cardTitle}>Forfaits zilizouzwa</h2>
-          <p style={styles.number}>{totalVentes}</p>
-        </div>
-        <div style={styles.card}>
-          <h2 style={styles.cardTitle}>Mapato (TZS)</h2>
-          <p style={styles.number}>{totalMontant}</p>
+        <div style={s.filters}>
+          <button
+            onClick={() => setFiltre("today")}
+            style={{ ...s.filterBtn, ...(filtre === "today" ? s.filterActive : {}) }}
+          >
+            Leo
+          </button>
+          <button
+            onClick={() => setFiltre("month")}
+            style={{ ...s.filterBtn, ...(filtre === "month" ? s.filterActive : {}) }}
+          >
+            Mwezi huu
+          </button>
+          <button
+            onClick={() => setFiltre("all")}
+            style={{ ...s.filterBtn, ...(filtre === "all" ? s.filterActive : {}) }}
+          >
+            Zote
+          </button>
         </div>
       </div>
 
-      {/* Graphique */}
-      <div style={styles.graphWrapper}>
-        <DashboardChart />
+      {/* KPIs */}
+      <div style={s.kpiRow}>
+        <div style={s.kpiCard}>
+          <div style={s.kpiTitle}>Forfaits zilizouzwa</div>
+          <div style={s.kpiValue}>{loading ? "…" : totalVentes}</div>
+        </div>
+        <div style={s.kpiCard}>
+          <div style={s.kpiTitle}>Mapato (TZS)</div>
+          <div style={s.kpiValue}>{loading ? "…" : totalMontant}</div>
+        </div>
       </div>
 
-      {/* Historique */}
-      <div style={styles.footer}>
-        <button onClick={() => navigate('/ventes')} style={styles.historyBtn}>
-          Tazama historia yote ya mauzo
-        </button>
+      {/* Graphique simple (sans lib) */}
+      <div style={s.panel}>
+        <div style={s.panelHeader}>Revenus quotidiens</div>
+        <div style={s.chartWrap}>
+          {chartData.map((row) => {
+            const h = (row.montant / maxY) * 180; // 180px max
+            return (
+              <div key={row.date} style={s.barItem}>
+                <div style={{ ...s.bar, height: `${h}px` }} />
+                <div style={s.barLabelDate}>{row.date}</div>
+                <div style={s.barLabelVal}>{row.montant}</div>
+              </div>
+            );
+          })}
+        </div>
+        {!loading && totalVentes === 0 && (
+          <div style={s.empty}>Hakuna data ya kuonyesha kwenye kipindi hiki.</div>
+        )}
       </div>
+
+      {/* Erreur éventuelle */}
+      {err && <div style={s.error}>{err}</div>}
+
+      <div style={{ height: 24 }} />
+      <a href="/ventes" style={s.cta}>Tazama historia yote ya mauzo</a>
     </div>
   );
 }
 
-const styles = {
-  container: { padding: '20px', fontFamily: 'Segoe UI, sans-serif', backgroundColor: '#0b0f1a', color: '#ffffff', minHeight: '100vh', boxSizing: 'border-box' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '20px', gap: '15px' },
-  title: { fontSize: '24px', color: '#f5d042', marginBottom: '4px' },
-  subtitle: { fontSize: '14px', color: '#ccc', margin: 0 },
-  refreshBtn: { backgroundColor: '#f5d042', color: '#0a174e', border: 'none', padding: '10px 18px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' },
-  routerStatus: { backgroundColor: '#111827', padding: '12px 20px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '400px', margin: '0 auto 25px', boxShadow: '0 2px 5px rgba(0,0,0,0.3)' },
-  filtres: { display: 'flex', justifyContent: 'center', gap: '12px', marginBottom: '25px', flexWrap: 'wrap' },
-  btn: { backgroundColor: '#1f2937', color: '#ffffff', border: '1px solid #444', padding: '10px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' },
-  activeBtn: { backgroundColor: '#f5d042', color: '#0a174e', fontWeight: 'bold', padding: '10px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '14px' },
-  summaryContainer: { display: 'flex', justifyContent: 'center', gap: '20px', marginBottom: '30px', flexWrap: 'wrap' },
-  card: { backgroundColor: '#111827', padding: '20px', borderRadius: '10px', width: '220px', textAlign: 'center', boxShadow: '0 2px 5px rgba(0,0,0,0.3)' },
-  cardTitle: { fontSize: '15px', marginBottom: '8px' },
-  number: { fontSize: '22px', fontWeight: 'bold', color: '#f5d042' },
-  graphWrapper: { backgroundColor: '#111827', padding: '20px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', marginBottom: '30px' },
-  footer: { display: 'flex', justifyContent: 'center' },
-  historyBtn: { backgroundColor: '#f5d042', color: '#0a174e', padding: '12px 20px', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '15px', boxShadow: '0 2px 5px rgba(0,0,0,0.2)' },
+const s = {
+  page: { padding: 24, background: "#0b0f1a", minHeight: "100vh", color: "#fff", fontFamily: "Segoe UI, sans-serif" },
+  h1: { margin: "0 0 6px", color: "#f5d042" },
+  sub: { marginTop: 0, color: "#cbd5e1" },
+  toolbar: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 16 },
+  statusWrap: { display: "flex", alignItems: "center", gap: 8, background: "#111827", borderRadius: 8, padding: "8px 10px" },
+  statusLabel: { color: "#d1d5db", fontSize: 14 },
+  statusPill: { color: "#fff", borderRadius: 999, padding: "4px 10px", fontSize: 13, fontWeight: "bold" },
+  filters: { display: "flex", gap: 8, marginLeft: "auto" },
+  filterBtn: { background: "#111827", color: "#e5e7eb", border: "1px solid #374151", borderRadius: 8, padding: "8px 10px", cursor: "pointer" },
+  filterActive: { background: "#f5d042", color: "#0a174e", borderColor: "#f5d042", fontWeight: "bold" },
+  kpiRow: { display: "flex", gap: 16, flexWrap: "wrap", marginTop: 10, marginBottom: 18 },
+  kpiCard: { background: "#111827", borderRadius: 12, padding: 18, minWidth: 240, flex: "0 0 auto", boxShadow: "0 2px 6px rgba(0,0,0,.3)" },
+  kpiTitle: { color: "#d1d5db", fontSize: 14, marginBottom: 6 },
+  kpiValue: { color: "#f5d042", fontSize: 28, fontWeight: "bold" },
+  panel: { background: "#0d1324", borderRadius: 12, padding: 16, boxShadow: "0 2px 6px rgba(0,0,0,.35)", marginTop: 8 },
+  panelHeader: { color: "#e5e7eb", fontWeight: "600", marginBottom: 8 },
+  chartWrap: { display: "grid", gridAutoFlow: "column", gridAutoColumns: "minmax(70px, 1fr)", alignItems: "end", gap: 12, height: 220, padding: "12px 8px", overflowX: "auto", background: "#111827", borderRadius: 10 },
+  barItem: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 6 },
+  bar: { width: 44, background: "#f5d042", borderRadius: 8, boxShadow: "0 1px 3px rgba(0,0,0,.3)" },
+  barLabelDate: { color: "#cbd5e1", fontSize: 12 },
+  barLabelVal: { color: "#f5d042", fontSize: 12, fontWeight: 600 },
+  empty: { color: "#9ca3af", textAlign: "center", padding: "12px 0" },
+  error: { background: "#4b1d1d", color: "#ffb4b4", padding: "10px 12px", borderRadius: 8, marginTop: 12, fontSize: 14 },
+  cta: { display: "inline-block", background: "#f5d042", color: "#0a174e", padding: "10px 14px", borderRadius: 8, fontWeight: "bold", textDecoration: "none" },
 };
 
 export default Dashboard;
