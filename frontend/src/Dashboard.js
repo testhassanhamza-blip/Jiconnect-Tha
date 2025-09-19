@@ -91,7 +91,7 @@ function Dashboard() {
 
   return (
     <div style={s.page}>
-      <h1 style={s.h1}>Dashibodi ya Jiconnect</h1>
+      <h1 style={s.h1}>Dashibodi ya23 Jiconnect</h1>
       <p style={s.sub}>Muhtasari wa mauzo na hali ya router</p>
 
       {/* Bandeau debug temporaire */}
