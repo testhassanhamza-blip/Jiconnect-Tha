@@ -103,7 +103,7 @@ function Dashboard() {
       {/* Barre d’état + filtres + bouton Actualiser */}
       <div style={s.toolbar}>
         <div style={s.statusWrap}>
-          <span style={s.statusLabel}>Statut du11 routeur :</span>
+          <span style={s.statusLabel}>Statut du routeur :</span>
           <span
             style={{
               ...s.statusPill,
