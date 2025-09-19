@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import api from "./api";
-// SYNC TEST HASSAN — 2025-09-19 (EAT)
 
 /**
  * Dashboard 100% réel (MongoDB)
@@ -104,7 +103,7 @@ function Dashboard() {
       {/* Barre d’état + filtres + bouton Actualiser */}
       <div style={s.toolbar}>
         <div style={s.statusWrap}>
-          <span style={s.statusLabel}>Statut du routeur :</span>
+          <span style={s.statusLabel}>Statut du11 routeur :</span>
           <span
             style={{
               ...s.statusPill,
